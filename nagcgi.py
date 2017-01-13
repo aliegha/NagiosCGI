@@ -8,8 +8,7 @@ Nagios controllable programatically.
 
 Expects python-2.6.2 or equivalent for urllib2.
 '''
-import urllib
-import urllib2
+import requests
 import time
 
 
@@ -191,31 +190,39 @@ class Nagcgi:
         parts.append(cgi)
         self.uri = ''.join(parts)
         self.author = userid
-        auth_manager = urllib2.HTTPPasswordMgrWithDefaultRealm()
-        auth_manager.add_password(realm=None,
-                          uri=self.uri,
-                          user=userid,
-                          passwd=password)
-        auth_handler = urllib2.HTTPBasicAuthHandler(auth_manager)
-        self.opener = urllib2.build_opener(auth_handler)
-        self.opener.addheaders = [('User-agent', 'NagCGI Python Library/0.1')]
-        return
+        uri=self.uri
+        user=userid
+        passwd=password
+        r=requests.get(uri, auth=(user, passwd))
+        r.headers=['User-agent', 'NagCGI Python Library/0.1']
+        r.status_code
+        # auth_manager = urllib2.HTTPPasswordMgrWithDefaultRealm()
+        # auth_manager.add_password(realm=None,
+        #                   uri=self.uri,
+        #                   user=userid,
+        #                   passwd=password)
+        # auth_handler = urllib2.HTTPBasicAuthHandler(auth_manager)
+        # self.opener = urllib2.build_opener(auth_handler)
+        # self.opener.addheaders = [('User-agent', 'NagCGI Python Library/0.1')]
+        # return
 
-    def _dispatch(self, cmd, **kwargs):
+    def _dispatch(self, author, cmd_typ, cmd_mod, cmd, **kwargs):
         '''Easily abused work-horse.
 
         Send the completed command to the Nagios server.  No checking.'''
         if kwargs.has_key('author'):
-            if kwargs['author'] == None: kwargs['author'] = self.author
-        kwargs['cmd_typ'] = cmd
-        kwargs['cmd_mod'] = self._commit
-        data = urllib.urlencode(kwargs)
+            if author == None: author = self.author
+        cmd_typ = cmd
+        cmd_mod = self._commit
+        #data = urllib.urlencode(kwargs)
 
         if self.debug:
-            print "URI: %s" % (self.uri)
-            print "DATA: %s" % (data)
+            print("URI: {}".format(self.uri))
+            print("DATA: {}".format(data))
 
-        return self.opener.open(self.uri, data).read()
+        r = request.post(self.uri, data=None, **kwargs)
+
+        return r
 
     def _default_start_time(self):
         return time.strftime(self._time_fmt)
@@ -299,4 +306,6 @@ class Nagcgi:
 
     def schedule_service_check(self, hostname, service, checktime):
         return self._dispatch(self.CMD_SCHEDULE_SVC_CHECK, host = hostname, service = service, start_time=checktime, force_check=True )
+
+
 
