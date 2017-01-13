@@ -190,21 +190,8 @@ class Nagcgi:
         parts.append(cgi)
         self.uri = ''.join(parts)
         self.author = userid
-        uri=self.uri
-        user=userid
-        passwd=password
-        r=requests.get(uri, auth=(user, passwd))
-        r.headers=['User-agent', 'NagCGI Python Library/0.1']
-        r.status_code
-        # auth_manager = urllib2.HTTPPasswordMgrWithDefaultRealm()
-        # auth_manager.add_password(realm=None,
-        #                   uri=self.uri,
-        #                   user=userid,
-        #                   passwd=password)
-        # auth_handler = urllib2.HTTPBasicAuthHandler(auth_manager)
-        # self.opener = urllib2.build_opener(auth_handler)
-        # self.opener.addheaders = [('User-agent', 'NagCGI Python Library/0.1')]
-        # return
+        self.auth = (userid, password)
+
 
     def _dispatch(self, author, cmd_typ, cmd_mod, cmd, **kwargs):
         '''Easily abused work-horse.
@@ -220,7 +207,7 @@ class Nagcgi:
             print("URI: {}".format(self.uri))
             print("DATA: {}".format(data))
 
-        r = request.post(self.uri, data=None, **kwargs)
+        r = request.post(self.uri, auth=self.auth,  headers={'User-agent': 'NagCGI Python Library/0.1'}, **kwargs)
 
         return r
 
