@@ -1,19 +1,40 @@
-#! /usr/bin/env python
-'''Python CGI interface to Nagios.
+#!/usr/bin/python -tt
 
+# Copyright (c) 2014, John Morrissey <jwm@horde.net>
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of Version 2 of the GNU General Public License as
+# published by the Free Software Foundation
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+# Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+
+"""Python interface to Nagios' cmd.cgi.
 Ever want to control Nagios from some place that *wasn't* the Nagios
-server itself?  Ever notice that the web front-end is kind of painful
-to automate?  Ever have that dream where ... Uh, I mean, let's make
-Nagios controllable programatically.
+server itself? Ever notice that the web front-end is kind of painful
+to automate?
+"""
 
-Expects python-2.6.2 or equivalent for urllib2.
-'''
-import requests
 import time
+
+import requests
 
 
 class Nagcgi:
     _commit = 2
+    _TIME_FMT = '%m-%d-%Y %T'
+
+    DEFAULT_DOWNTIME_DURATION_HOURS = 2
+    SUCCESS_RESPONSE_TEXT = 'Your command request was successfully ' \
+        'submitted to Nagios for processing.'
+
+    # All of the nagios command identifiers from common.h:
     CMD_ADD_HOST_COMMENT = 1
     CMD_DEL_HOST_COMMENT = 2
     CMD_ADD_SVC_COMMENT = 3
@@ -175,123 +196,151 @@ class Nagcgi:
     CMD_DEL_DOWNTIME_BY_HOSTGROUP_NAME = 171
     CMD_DEL_DOWNTIME_BY_START_TIME_COMMENT = 172
     CMD_CUSTOM_COMMAND = 999
-    _time_fmt = '%m-%d-%Y %T'
-    debug = False
 
-    def __init__(self, hostname, userid = None, password = None,
-                 secure = None, cgi = '/cgi-bin/cmd.cgi', debug = False):
-        parts = ['http', ]
-        if debug:
-            self.debug = True
-        if secure:
-            parts.append('s')
-        parts.append('://')
-        parts.append(hostname)
-        parts.append(cgi)
-        self.uri = ''.join(parts)1
-        self.author = userid
-        self.auth = (userid, passwor
+    username = None
+    password = None
 
-    def _dispatch(self, author, cmd_typ, cmd_mod, cmd, **kwargs):
-        '''Easily abused work-horse.
+    def __init__(self, nagios_url_base, username=None, password=None,
+                 cgi='/cgi-bin/icinga/cmd.cgi'):
 
-        Send the completed command to the Nagios server.  No checking.'''
-        if kwargs.has_key('author'):
-            if author == None: author = self.author
-        cmd_typ = cmd
-        cmd_mod = self._commit
-        #data = urllib.urlencode(kwargs)
+        self.uri = '{0}{1}'.format(nagios_url_base, cgi)
+        self.username = username
+        self.password = password
 
-        if self.debug:
-            print("URI: {}".format(self.uri))
-            print("DATA: {}".format(data))
+    def _dispatch(self, cmd, **kwargs):
+        """Send the completed command to the Nagios server."""
 
-        r = request.post(self.uri, auth=self.auth,  headers={'User-agent': 'NagCGI Python Library/0.1'}, **kwargs)
+        if 'com_data' in kwargs and 'com_author' not in kwargs:
+            kwargs['com_author'] = self.username
+        kwargs['cmd_typ'] = cmd
+        kwargs['cmd_mod'] = self._commit
 
-        return r
+        headers = {
+            'User-Agent': 'NagCGI Python Library/0.2',
+        }
+
+        response = requests.get(
+            self.uri, params=kwargs, headers=headers,
+            auth=(self.username, self.password))
+        if self.SUCCESS_RESPONSE_TEXT in response.text:
+            return True
+
+        raise Exception('Invalid response from Nagios: %s' % response.text)
 
     def _default_start_time(self):
-        return time.strftime(self._time_fmt)
-    
+        return time.strftime(self._TIME_FMT)
+
     def _default_end_time(self):
-        return time.strftime(self._time_fmt, time.localtime(time.time() + 7200))
-    
-    def add_host_comment(self, hostname, comment, persistent = 1, author = None):
-        return self._dispatch(self.CMD_ADD_HOST_COMMENT, host = hostname, 
-                              com_author = author, com_data = comment, 
-                              persistent = str(persistent))
+        return time.strftime(
+            self._TIME_FMT, time.localtime(time.time() +
+                self.DEFAULT_DOWNTIME_DURATION_HOURS * 60 * 60))
 
-    def ack_host_problem(self, hostname, comment, sticky_ack = 1, author = None):
-        return self._dispatch(self.CMD_ACKNOWLEDGE_HOST_PROBLEM, host = hostname, 
-                              com_author = author, com_data = comment, sticky_ack = str(sticky_ack))
-                    
-    def add_svc_comment(self, hostname, service, comment, persistent = 1,
-                        author = None):
-        return self._dispatch(self.CMD_ADD_SVC_COMMENT, host = hostname, service = service,
-                              com_author = author, com_data = comment, 
-                              persistent = str(persistent))
+    def true_or_empty(self, value):
+        if value:
+            return True
+        return ''
 
-    def ack_svc_problem(self, hostname, service, comment, sticky_ack = 1,
-                        send_notification = 0, author = None):
-        return self._dispatch(self.CMD_ACKNOWLEDGE_SVC_PROBLEM, host = hostname, service = service,
-                              com_author = author, com_data = comment, sticky_ack = str(sticky_ack),
-                              send_notification = str(send_notification))
+    def add_host_comment(self, hostname, comment, persistent=True,
+                         author=None):
+        return self._dispatch(
+            self.CMD_ADD_HOST_COMMENT, host=hostname,
+            com_author=author, com_data=comment,
+            persistent=self.true_or_empty(persistent))
+
+    def ack_host_problem(self, hostname, comment, sticky_ack=True,
+                         author=None):
+        return self._dispatch(
+            self.CMD_ACKNOWLEDGE_HOST_PROBLEM, host=hostname,
+            com_author=author, com_data=comment,
+            sticky_ack=self.true_or_empty(sticky_ack))
+
+    def add_svc_comment(self, hostname, service, comment, persistent=True,
+                        author=None):
+        return self._dispatch(
+            self.CMD_ADD_SVC_COMMENT, host=hostname, service=service,
+            com_author=author, com_data=comment,
+            persistent=self.true_or_empty(persistent))
+
+    def ack_svc_problem(self, hostname, service, comment, sticky_ack=True,
+                        send_notification=False, author=None):
+        return self._dispatch(
+            self.CMD_ACKNOWLEDGE_SVC_PROBLEM, host=hostname, service=service,
+            com_author=author, com_data=comment,
+            sticky_ack=self.true_or_empty(sticky_ack),
+            send_notification=self.true_or_empty(send_notification))
 
     def disable_svc_check(self, hostname, service):
-        return self._dispatch(self.CMD_DISABLE_SVC_CHECK, host = hostname, service = service )
+        return self._dispatch(
+            self.CMD_DISABLE_SVC_CHECK, host=hostname, service=service)
 
     def enable_svc_check(self, hostname, service):
-        return self._dispatch(self.CMD_ENABLE_SVC_CHECK, host = hostname, service = service )
-                    
+        return self._dispatch(
+            self.CMD_ENABLE_SVC_CHECK, host=hostname, service=service)
+
     def disable_svc_notifications(self, hostname, service):
-        return self._dispatch(self.CMD_DISABLE_SVC_NOTIFICATIONS, host = hostname, service = service )
+        return self._dispatch(
+            self.CMD_DISABLE_SVC_NOTIFICATIONS, host=hostname,
+            service=service)
 
     def enable_svc_notifications(self, hostname, service):
-        return self._dispatch(self.CMD_ENABLE_SVC_NOTIFICATIONS, host = hostname, service = service )
+        return self._dispatch(
+            self.CMD_ENABLE_SVC_NOTIFICATIONS, host=hostname, service=service)
 
-    def schedule_svc_downtime(self, hostname, service, comment, author = None, hours = 2,
-                              fixed = 0, end_time = None, start_time = None):
-        if not start_time: start_time = self._default_start_time()
-        if not end_time: end_time = self._default_end_time()
-        return self._dispatch(self.CMD_SCHEDULE_SVC_DOWNTIME, host = hostname, service = service,
-                              com_author = author, com_data = comment, fixed = str(fixed),
-                              hours = str(hours), start_time = start_time, end_time = end_time)
+    def schedule_svc_downtime(self, hostname, service, comment, author=None,
+                              fixed=False, end_time=None, start_time=None):
+        if not start_time:
+            start_time = self._default_start_time()
+        if not end_time:
+            end_time = self._default_end_time()
 
-    def schedule_host_downtime(self, hostname, comment="Automated Downtime", author="nagcgi", start_time=None, end_time=None):
-        if not start_time: start_time = self._default_start_time()
-        if not end_time: end_time = self._default_end_time()
-        return self._dispatch(self.CMD_SCHEDULE_HOST_DOWNTIME, host=hostname, com_data=comment, author=author, fixed="1", hours="2",
-                              start_time=start_time, end_time=end_time)
-                    
+        return self._dispatch(
+            self.CMD_SCHEDULE_SVC_DOWNTIME, host=hostname, service=service,
+            com_author=author, com_data=comment,
+            fixed=self.true_or_empty(fixed),
+            hours=str(hours), start_time=start_time, end_time=end_time)
+
     def disable_notifications(self):
-        return self._dispatch(self.CMD_DISABLE_NOTIFICATIONS )
+        return self._dispatch(self.CMD_DISABLE_NOTIFICATIONS)
 
     def enable_notifications(self):
-        return self._dispatch(self.CMD_ENABLE_NOTIFICATIONS )
+        return self._dispatch(self.CMD_ENABLE_NOTIFICATIONS)
 
     def start_service_checks(self):
-        return self._dispatch(self.CMD_START_ACCEPTING_PASSIVE_SVC_CHECKS ) + self._dispatch(self.CMD_START_EXECUTING_SVC_CHECKS )
+        return self._dispatch(
+            self.CMD_START_ACCEPTING_PASSIVE_SVC_CHECKS) + \
+                self._dispatch(self.CMD_START_EXECUTING_SVC_CHECKS)
 
     def stop_service_checks(self):
-        return self._dispatch(self.CMD_STOP_ACCEPTING_PASSIVE_SVC_CHECKS ) + self._dispatch(self.CMD_STOP_EXECUTING_SVC_CHECKS )
+        return self._dispatch(
+            self.CMD_STOP_ACCEPTING_PASSIVE_SVC_CHECKS) + \
+                self._dispatch(self.CMD_STOP_EXECUTING_SVC_CHECKS)
 
-    def disable_host_svc_checks(self, hostname, ahas = 1):
-        return self._dispatch(self.CMD_DISABLE_SVC_CHECK, host = hostname, ahas = str(ahas) )
+    def disable_host_svc_checks(self, hostname, ahas=True):
+        return self._dispatch(
+            self.CMD_DISABLE_SVC_CHECK, host=hostname,
+            ahas=self.true_or_empty(ahas))
 
     def enable_host_svc_checks(self, hostname):
-        return self._dispatch(self.CMD_ENABLE_SVC_CHECK, host = hostname, ahas = str(ahas) )
-                    
-    def disable_host_svc_notifications(self, hostname, ahas = 1):
-        return self._dispatch(self.CMD_DISABLE_HOST_SVC_NOTIFICATIONS, host = hostname, ahas = str(ahas) )
+        return self._dispatch(
+            self.CMD_ENABLE_SVC_CHECK, host=hostname,
+            ahas=self.true_or_empty(ahas))
 
-    def enable_host_svc_notifications(self, hostname, ahas = 1):
-        return self._dispatch(self.CMD_ENABLE_HOST_SVC_NOTIFICATIONS, host = hostname, ahas = str(ahas) )
+    def disable_host_svc_notifications(self, hostname, ahas=True):
+        return self._dispatch(
+            self.CMD_DISABLE_HOST_SVC_NOTIFICATIONS, host=hostname,
+            ahas=self.true_or_empty(ahas))
 
-    def submit_passive_check(self, hostname, service, result, output):
-        return self._dispatch(self.CMD_PROCESS_SERVICE_CHECK_RESULT, host = hostname, service = service, plugin_state=result, plugin_output=output )
+    def enable_host_svc_notifications(self, hostname, ahas=True):
+        return self._dispatch(
+            self.CMD_ENABLE_HOST_SVC_NOTIFICATIONS, host=hostname,
+            ahas=self.true_or_empty(ahas))
 
-    def schedule_service_check(self, hostname, service, checktime):
-        return self._dispatch(self.CMD_SCHEDULE_SVC_CHECK, host = hostname, service = service, start_time=checktime, force_check=True )
+    def schedule_svc_check(self, hostname, service, when=None):
+        if not when:
+            when = self._default_start_time()
 
+        return self._dispatch(
+            self.CMD_SCHEDULE_SVC_CHECK, host=hostname, service=service,
+            force_check='on', start_time=when)
 
 
