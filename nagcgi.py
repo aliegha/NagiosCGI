@@ -179,7 +179,7 @@ class Nagcgi:
     debug = False
 
     def __init__(self, hostname, userid = None, password = None,
-                 secure = None, cgi = '/nagios/cgi-bin/cmd.cgi', debug = False):
+                 secure = None, cgi = '/cgi-bin/cmd.cgi', debug = False):
         parts = ['http', ]
         if debug:
             self.debug = True
@@ -188,10 +188,9 @@ class Nagcgi:
         parts.append('://')
         parts.append(hostname)
         parts.append(cgi)
-        self.uri = ''.join(parts)
+        self.uri = ''.join(parts)1
         self.author = userid
-        self.auth = (userid, password)
-
+        self.auth = (userid, passwor
 
     def _dispatch(self, author, cmd_typ, cmd_mod, cmd, **kwargs):
         '''Easily abused work-horse.
